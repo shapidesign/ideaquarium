@@ -90,6 +90,9 @@ export function SwimmingFish({ idea, onFishClick }: SwimmingFishProps) {
   useEffect(() => {
     let animationFrameId: number;
 
+    // Random offset for swimming phase so they don't all wiggle in sync
+    let swimPhase = Math.random() * Math.PI * 2;
+
     const animate = () => {
       if (!fishRef.current) return;
 
@@ -99,11 +102,9 @@ export function SwimmingFish({ idea, onFishClick }: SwimmingFishProps) {
 
       // 1. Random Direction Changes (wandering behavior)
       const timeSinceLastChange = now - lastDirectionChangeRef.current;
-      // Change direction every 3-8 seconds for more stability
       const changeInterval = 3000 + Math.random() * 5000;
 
       if (timeSinceLastChange > changeInterval) {
-        // Pick a new random target velocity
         const speed = 0.6 + Math.random() * 0.6; // Variable speed
         const angle = Math.random() * Math.PI * 2;
 
@@ -115,56 +116,70 @@ export function SwimmingFish({ idea, onFishClick }: SwimmingFishProps) {
       }
 
       // 2. Wall Avoidance (Soft Steering)
-      // "Look ahead" vector logic could be complex, simple bounding box steering is safer
-      const margin = 150; // Start turning before hitting wall
-      const turnStrength = 0.05;
+      // Keep them largely on screen. 
+      // Margin is how close to the edge they get before turning.
+      // We want them to use the WHOLE canvas but turn AROUND at the edges.
+      const margin = 100;
+      const turnStrength = 0.08; // Stronger turning to avoid sticking
 
       if (pos.x < bounds.left + margin) targetDirectionRef.current.vx += turnStrength;
       if (pos.x > bounds.right - margin) targetDirectionRef.current.vx -= turnStrength;
       if (pos.y < bounds.top + margin) targetDirectionRef.current.vy += turnStrength;
       if (pos.y > bounds.bottom - margin) targetDirectionRef.current.vy -= turnStrength;
 
-      // Normalize target vector to maintain consistent max speed
+      // Normalize target vector 
       const targetSpeed = Math.hypot(targetDirectionRef.current.vx, targetDirectionRef.current.vy);
-      const maxSpeed = 1.2; // Cap max speed
+      const maxSpeed = 1.5; // Slightly faster
+      const minSpeed = 0.5; // Don't stop completely
+
       if (targetSpeed > maxSpeed) {
         targetDirectionRef.current.vx = (targetDirectionRef.current.vx / targetSpeed) * maxSpeed;
         targetDirectionRef.current.vy = (targetDirectionRef.current.vy / targetSpeed) * maxSpeed;
+      } else if (targetSpeed < minSpeed && targetSpeed > 0.01) {
+        // boost minimal speed
+        targetDirectionRef.current.vx = (targetDirectionRef.current.vx / targetSpeed) * minSpeed;
+        targetDirectionRef.current.vy = (targetDirectionRef.current.vy / targetSpeed) * minSpeed;
       }
 
-      // 3. Smooth Physics Update (Interpolation)
-      // Lower factor = more inertia/weight (fish feel heavier)
-      const inertia = 0.02;
+      // 3. Smooth Physics Update
+      const inertia = 0.03;
       pos.vx += (targetDirectionRef.current.vx - pos.vx) * inertia;
       pos.vy += (targetDirectionRef.current.vy - pos.vy) * inertia;
 
-      // Update position
       pos.x += pos.vx;
       pos.y += pos.vy;
 
-      // 4. Calculate Visual Rotation (Tilt)
-      // Fish tilt up/down based on vertical velocity
-      const targetRotation = Math.atan2(pos.vy, Math.abs(pos.vx)) * (180 / Math.PI);
-      // Smooth out rotation
+      // 4. Calculate Visual Rotation (Tilt + Wiggle)
+      // Base tilt from velocity
+      const velocityAngle = Math.atan2(pos.vy, Math.abs(pos.vx)) * (180 / Math.PI); // -90 to 90
+
+      // Swimming wiggle (sine wave)
+      // Frequency increases with speed
+      const currentSpeed = Math.hypot(pos.vx, pos.vy);
+      swimPhase += 0.1 + (currentSpeed * 0.1);
+      const wiggle = Math.sin(swimPhase) * 5; // +/- 5 degrees wiggle
+
+      // Combine
+      const targetRotation = velocityAngle + wiggle;
+
+      // Smooth rotation update
       pos.rotation += (targetRotation - pos.rotation) * 0.1;
 
-      // 5. Apply Transforms directly to DOM
+      // 5. Apply Transforms
       const facingLeft = pos.vx < 0;
 
-      // We translate the container
-      const transformString = `translate3d(${pos.x}px, ${pos.y}px, 0)`;
+      const transformString = `translate3d(${pos.x}px, ${pos.y}px, 0) scale(${scaleRef.current})`;
       fishRef.current.style.transform = transformString;
 
-      // We rotate the inner fish element (or apply it here if we want)
-      // It's cleaner to apply flip and rotation to the inner image wrapper usually, 
-      // but let's do it on the child div to separate movement from orientation.
       const innerFish = fishRef.current.firstElementChild as HTMLElement;
       if (innerFish) {
-        // Flip if going left
         const flip = facingLeft ? 'scaleX(-1)' : 'scaleX(1)';
-        // Clamp rotation to avoid looping weirdness (rare but possible)
-        const clampedRot = Math.max(-25, Math.min(25, pos.rotation)); // Gentle tilt only
-        innerFish.style.transform = `${flip} rotate(${facingLeft ? -clampedRot : clampedRot}deg)`;
+        // Clamp to avoid extreme spins, but allow the wiggle
+        let rot = facingLeft ? -pos.rotation : pos.rotation;
+        // Soft clamp
+        rot = Math.max(-45, Math.min(45, rot));
+
+        innerFish.style.transform = `${flip} rotate(${rot}deg)`;
       }
 
       animationFrameId = requestAnimationFrame(animate);
