@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { User, LogOut, RefreshCw, Book } from "lucide-react";
+import { User, LogOut, RefreshCw, Heart } from "lucide-react";
 import { getSupabaseClient } from "@/utils/supabase/client";
 import { projectId, publicAnonKey } from "@/utils/supabase/info";
 
@@ -370,16 +370,16 @@ function App() {
   return (
     <div className="fixed inset-0 w-full h-full overflow-hidden" dir="rtl">
 
-      {/* Top Left: Support Button (Book Icon) */}
+      {/* Top Left: Support Button (Heart Icon) */}
       <div className="absolute top-6 left-6 md:top-8 md:left-8 z-30">
         <Button
-          variant="primary" // Changed from BuyMeACoffee proprietary style to standard, we can customize if needed.
-          size="icon"
+          variant="primary"
           onClick={() => window.open("https://www.buymeacoffee.com/shapi", "_blank")}
           title="Support My Work"
-          className="bg-[#5F7FFF] hover:bg-[#4a63cc]"
+          className="bg-[#5F7FFF] hover:bg-[#4a63cc] flex items-center gap-2 px-3 pl-3 pr-2"
         >
-          <Book className="w-6 h-6 text-white" />
+          <span className="hidden md:inline font-hebrew text-white text-sm">תמכו בי</span>
+          <Heart className="w-5 h-5 text-red-500 fill-red-500" />
         </Button>
       </div>
 
@@ -415,7 +415,7 @@ function App() {
           <Button
             variant="danger"
             onClick={handleClearAll}
-            className="px-4 py-2 h-12 text-xs md:text-sm font-pixel"
+            className="px-4 py-2 h-12 text-xs md:text-sm font-hebrew"
           >
             מחק הכל
           </Button>
@@ -435,7 +435,7 @@ function App() {
         <Button
           onClick={() => setIsModalOpen(true)}
           variant="primary"
-          className="h-16 px-8 py-4 text-xl md:text-3xl font-pixel bg-brand-blue hover:bg-brand-blue/90"
+          className="h-16 px-8 py-4 text-xl md:text-3xl font-hebrew font-bold bg-brand-blue hover:bg-brand-blue/90"
         >
           רעיון חדש
         </Button>
@@ -449,10 +449,10 @@ function App() {
             onClick={() => setIsListModalOpen(true)}
             className="bg-white hover:bg-gray-100 flex items-center gap-3"
           >
-            <span className="text-lg md:text-2xl font-pixel text-blue-800 leading-none">
+            <span className="text-lg md:text-2xl font-hebrew font-bold text-blue-800 leading-none">
               {ideas.length}
             </span>
-            <span className="text-sm md:text-lg font-pixel text-black leading-none">
+            <span className="text-sm md:text-lg font-hebrew font-bold text-black leading-none">
               רעיונות
             </span>
           </Button>

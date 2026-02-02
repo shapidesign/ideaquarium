@@ -222,7 +222,7 @@ export function SwimmingFish({ idea, onFishClick }: SwimmingFishProps) {
         <img
           src={fishAsset}
           alt={idea.name}
-          className={`w-[60px] h-[60px] md:w-[90px] md:h-[90px] lg:w-[100px] lg:h-[100px] object-contain pointer-events-none ${!idea.isDone ? 'drop-shadow-[0_4px_8px_rgba(0,0,0,0.3)]' : ''
+          className={`w-[40px] h-[40px] md:w-[90px] md:h-[90px] lg:w-[100px] lg:h-[100px] object-contain pointer-events-none ${!idea.isDone ? 'drop-shadow-[0_4px_8px_rgba(0,0,0,0.3)]' : ''
             }`}
           style={{
             imageRendering: "pixelated",
