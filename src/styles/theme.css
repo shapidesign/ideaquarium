@@ -1,0 +1,61 @@
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Core Colors */
+  --color-blue-light: #ADD8E6;
+  --color-yellow-main: #FFEB3B;
+  --color-red-main: #F44336;
+  --color-orange-main: #FF8C42;
+  --color-white: #FFFFFF;
+  --color-black: #000000;
+
+  /* Shadcn/Existing Vars (Keeping minimal set if needed by components, overriden where necessary) */
+  --background: var(--color-blue-light);
+  --foreground: var(--color-black);
+
+  --font-pixel: 'Press Start 2P', cursive;
+  --font-hebrew: 'Shimshon', 'Miriam Libre', sans-serif;
+
+  --radius: 0px;
+  /* Neo-brutalist = no radius usually, or small */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  --color-brand-blue: var(--color-blue-light);
+  --color-brand-yellow: var(--color-yellow-main);
+  --color-brand-red: var(--color-red-main);
+  --color-brand-orange: var(--color-orange-main);
+
+  --font-pixel: var(--font-pixel);
+  --font-hebrew: var(--font-hebrew);
+}
+
+@layer base {
+  * {
+    border-color: black;
+  }
+
+  body {
+    font-family: var(--font-hebrew);
+    background-image: url('../assets/Asset 1.svg');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+    height: 100vh;
+    margin: 0;
+    overflow: hidden;
+    /* App interaction is via modals */
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  .pixel-font {
+    font-family: var(--font-pixel);
+  }
+}
