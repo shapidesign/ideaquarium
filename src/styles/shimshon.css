@@ -1,41 +1,41 @@
 @font-face {
     font-family: 'Shimshon';
-    src: url('../assets/fonts/SHIMRG__.TTF') format('truetype');
+    src: url('/fonts/SHIMRG__.TTF') format('truetype');
     font-weight: 400;
     font-style: normal;
 }
 
 @font-face {
     font-family: 'Shimshon';
-    src: url('../assets/fonts/SHIMB___.TTF') format('truetype');
+    src: url('/fonts/SHIMB___.TTF') format('truetype');
     font-weight: 700;
     font-style: normal;
 }
 
 @font-face {
     font-family: 'Shimshon';
-    src: url('../assets/fonts/SHIMBI__.TTF') format('truetype');
+    src: url('/fonts/SHIMBI__.TTF') format('truetype');
     font-weight: 700;
     font-style: italic;
 }
 
 @font-face {
     font-family: 'Shimshon';
-    src: url('../assets/fonts/SHIMI___.TTF') format('truetype');
+    src: url('/fonts/SHIMI___.TTF') format('truetype');
     font-weight: 400;
     font-style: italic;
 }
 
 @font-face {
     font-family: 'Shimshon';
-    src: url('../assets/fonts/SHIMTI__.TTF') format('truetype');
+    src: url('/fonts/SHIMTI__.TTF') format('truetype');
     font-weight: 300;
     font-style: italic;
 }
 
 @font-face {
     font-family: 'Shimshon';
-    src: url('../assets/fonts/SHIMTRG_.TTF') format('truetype');
+    src: url('/fonts/SHIMTRG_.TTF') format('truetype');
     font-weight: 300;
     font-style: normal;
 }

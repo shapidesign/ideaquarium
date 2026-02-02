@@ -180,6 +180,12 @@ export function SwimmingFish({ idea, onFishClick }: SwimmingFishProps) {
         rot = Math.max(-45, Math.min(45, rot));
 
         innerFish.style.transform = `${flip} rotate(${rot}deg)`;
+
+        // Counter-flip text so it is readable
+        const textElement = innerFish.querySelector('.fish-text-container') as HTMLElement;
+        if (textElement) {
+          textElement.style.transform = facingLeft ? 'scaleX(-1)' : 'scaleX(1)';
+        }
       }
 
       animationFrameId = requestAnimationFrame(animate);
@@ -225,7 +231,7 @@ export function SwimmingFish({ idea, onFishClick }: SwimmingFishProps) {
               : undefined
           }}
         />
-        <div className={`bg-white/90 border-2 ${idea.isDone ? 'border-[#4CAF50] ring-2 ring-[#4CAF50]/50' : 'border-black'} rounded-sm px-2 py-1 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] pointer-events-none`}>
+        <div className={`fish-text-container bg-white/90 border-2 ${idea.isDone ? 'border-[#4CAF50] ring-2 ring-[#4CAF50]/50' : 'border-black'} rounded-sm px-2 py-1 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] pointer-events-none`}>
           <p className="text-[10px] md:text-xs font-['Shimshon','Miriam_Libre',sans-serif] font-bold text-black leading-none whitespace-nowrap max-w-[120px] md:max-w-[180px] truncate text-center">
             {idea.name}
           </p>
