@@ -10,6 +10,7 @@ import { IdeasListModal } from "@/app/components/IdeasListModal";
 import { AuthModal } from "@/app/components/AuthModal";
 import { FISH_ASSETS } from "@/app/utils/fishAssets";
 import { Button } from "@/components/ui/Button";
+import { Analytics } from "@vercel/analytics/react";
 
 export interface Idea {
   id: string;
@@ -497,6 +498,8 @@ function App() {
         onClose={() => setIsAuthModalOpen(false)}
         onAuthSuccess={handleAuthSuccess}
       />
+
+      <Analytics />
     </div>
   );
 }
