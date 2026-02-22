@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { User, LogOut, RefreshCw, Heart } from "lucide-react";
+import { Analytics } from "@vercel/analytics/react";
 import { getSupabaseClient } from "@/utils/supabase/client";
 import { projectId, publicAnonKey } from "@/utils/supabase/info";
 
@@ -497,6 +498,8 @@ function App() {
         onClose={() => setIsAuthModalOpen(false)}
         onAuthSuccess={handleAuthSuccess}
       />
+
+      <Analytics />
     </div>
   );
 }
