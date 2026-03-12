@@ -57,7 +57,7 @@ const kv = {
     const db = getDb();
     const refs = keys.map(k => db.collection(COLLECTION).doc(encodeKey(k)));
     const snaps = await db.getAll(...refs);
-    return snaps.map(snap => (snap.exists ? snap.data()?.value : undefined));
+    return snaps.map((snap: any) => (snap.exists ? snap.data()?.value : undefined));
   },
   mdel: async (keys: string[]): Promise<void> => {
     const db = getDb();
@@ -74,7 +74,7 @@ const kv = {
       .where("key", ">=", prefix)
       .where("key", "<", prefix + "\uffff")
       .get();
-    return snap.docs.map(doc => doc.data().value);
+    return snap.docs.map((doc: any) => doc.data().value);
   }
 };
 
