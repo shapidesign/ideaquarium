@@ -79,14 +79,18 @@ const kv = {
 };
 
 // ─── Hono App ────────────────────────────────────────────────────────────────
-const app = new Hono();
+// Use basePath to match Vercel's rewrite behavior
+const app = new Hono().basePath("/api");
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
-// (Temporarily removed to debug TypeError: this.raw.headers.get is not a function)
+// Re-enabling middleware now that we are using standard Vercel adapter pattern
+app.use('*', logger(console.log));
+app.use('*', cors());
 
 // ─── Health check ─────────────────────────────────────────────────────────────
-app.get("/api/health", (c) => {
-  return c.json({ status: "ok" });
+app.get("/health", (c) => {
+  console.log("Health check hit!");
+  return c.json({ status: "ok", runtime: "node" });
 });
 
 // ─── Auth helper ──────────────────────────────────────────────────────────────
@@ -103,7 +107,7 @@ async function getAuthUser(c: any) {
   if (!idToken) return { user: null, error: "Missing access token" };
 
   try {
-    const adminAuth = getAuthUserApp();
+    const adminAuth = getAdminAuthApp();
     const decoded = await adminAuth.verifyIdToken(idToken);
     return { user: decoded, error: null };
   } catch (err: any) {
@@ -112,13 +116,8 @@ async function getAuthUser(c: any) {
   }
 }
 
-// Fixed getAuthUser calling wrong function name
-function getAuthUserApp() {
-  return getAdminAuthApp();
-}
-
 // ─── Routes ──────────────────────────────────────────────────────────────────
-app.post("/api/signup", async (c) => {
+app.post("/signup", async (c) => {
   try {
     const { email, password, name } = await c.req.json();
     const adminAuth = getAdminAuthApp();
@@ -136,7 +135,7 @@ app.post("/api/signup", async (c) => {
   }
 });
 
-app.get("/api/ideas", async (c) => {
+app.get("/ideas", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
     if (!user) return c.json({ error: 'Unauthorized', details: error }, 401);
@@ -154,7 +153,7 @@ app.get("/api/ideas", async (c) => {
   }
 });
 
-app.post("/api/ideas", async (c) => {
+app.post("/ideas", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
     if (!user) return c.json({ error: 'Unauthorized', details: error }, 401);
@@ -173,7 +172,7 @@ app.post("/api/ideas", async (c) => {
   }
 });
 
-app.post("/api/ideas/batch", async (c) => {
+app.post("/ideas/batch", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
     if (!user) return c.json({ error: 'Unauthorized', details: error }, 401);
@@ -195,7 +194,7 @@ app.post("/api/ideas/batch", async (c) => {
   }
 });
 
-app.put("/api/ideas/:id", async (c) => {
+app.put("/ideas/:id", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
     if (!user) return c.json({ error: 'Unauthorized', details: error }, 401);
@@ -212,7 +211,7 @@ app.put("/api/ideas/:id", async (c) => {
   }
 });
 
-app.delete("/api/ideas/:id", async (c) => {
+app.delete("/ideas/:id", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
     if (!user) return c.json({ error: 'Unauthorized', details: error }, 401);
@@ -226,7 +225,7 @@ app.delete("/api/ideas/:id", async (c) => {
   }
 });
 
-app.delete("/api/ideas", async (c) => {
+app.delete("/ideas", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
     if (!user) return c.json({ error: 'Unauthorized', details: error }, 401);
