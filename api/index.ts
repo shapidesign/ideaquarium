@@ -7,7 +7,7 @@ import { handle } from "hono/vercel";
 import * as kv from "./kv_store";
 
 // Base path matched in vercel.json rewrite
-const app = new Hono().basePath('/api');
+const app = new Hono();
 
 // ─── Firebase Admin Initialization ───────────────────────────────────────────
 function getAdminApp() {
@@ -33,12 +33,12 @@ app.use(
 );
 
 // ─── Health check ─────────────────────────────────────────────────────────────
-app.get("/health", (c) => {
+app.get("/api/health", (c) => {
   return c.json({ status: "ok" });
 });
 
 // ─── Sign up ──────────────────────────────────────────────────────────────────
-app.post("/signup", async (c) => {
+app.post("/api/signup", async (c) => {
   try {
     const { email, password, name } = await c.req.json();
     const adminAuth = getAdminApp();
@@ -80,7 +80,7 @@ async function getAuthUser(c: any) {
 }
 
 // ─── Get user's ideas ─────────────────────────────────────────────────────────
-app.get("/ideas", async (c) => {
+app.get("/api/ideas", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
     if (!user) return c.json({ error: 'Unauthorized', details: error }, 401);
@@ -99,7 +99,7 @@ app.get("/ideas", async (c) => {
 });
 
 // ─── Add new idea ─────────────────────────────────────────────────────────────
-app.post("/ideas", async (c) => {
+app.post("/api/ideas", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
     if (!user) return c.json({ error: 'Unauthorized', details: error }, 401);
@@ -119,7 +119,7 @@ app.post("/ideas", async (c) => {
 });
 
 // ─── Batch upload ideas ───────────────────────────────────────────────────────
-app.post("/ideas/batch", async (c) => {
+app.post("/api/ideas/batch", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
     if (!user) return c.json({ error: 'Unauthorized', details: error }, 401);
@@ -142,7 +142,7 @@ app.post("/ideas/batch", async (c) => {
 });
 
 // ─── Update idea ──────────────────────────────────────────────────────────────
-app.put("/ideas/:id", async (c) => {
+app.put("/api/ideas/:id", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
     if (!user) return c.json({ error: 'Unauthorized', details: error }, 401);
@@ -160,7 +160,7 @@ app.put("/ideas/:id", async (c) => {
 });
 
 // ─── Delete idea ──────────────────────────────────────────────────────────────
-app.delete("/ideas/:id", async (c) => {
+app.delete("/api/ideas/:id", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
     if (!user) return c.json({ error: 'Unauthorized', details: error }, 401);
@@ -175,7 +175,7 @@ app.delete("/ideas/:id", async (c) => {
 });
 
 // ─── Clear all ideas ──────────────────────────────────────────────────────────
-app.delete("/ideas", async (c) => {
+app.delete("/api/ideas", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
     if (!user) return c.json({ error: 'Unauthorized', details: error }, 401);
