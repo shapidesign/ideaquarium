@@ -394,6 +394,7 @@ function App() {
         <SwimmingFish
           key={idea.id}
           idea={idea}
+          totalIdeas={ideas.length}
           onFishClick={handleFishClick}
         />
       ))}

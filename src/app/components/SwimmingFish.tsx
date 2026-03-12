@@ -5,10 +5,11 @@ import { FISH_ASSETS } from "@/app/utils/fishAssets";
 
 interface SwimmingFishProps {
   idea: Idea;
+  totalIdeas: number;
   onFishClick: (idea: Idea) => void;
 }
 
-export function SwimmingFish({ idea, onFishClick }: SwimmingFishProps) {
+export function SwimmingFish({ idea, totalIdeas, onFishClick }: SwimmingFishProps) {
   const [isSpawning, setIsSpawning] = useState(true);
   const fishRef = useRef<HTMLDivElement>(null);
 
@@ -30,7 +31,16 @@ export function SwimmingFish({ idea, onFishClick }: SwimmingFishProps) {
 
   const lastDirectionChangeRef = useRef(Date.now());
   const targetDirectionRef = useRef({ vx: 0, vy: 0 });
-  const scaleRef = useRef(1);
+
+  // Calculate dynamic scale based on total ideas.
+  // Reduce size by ~1.5% per idea, but never go below 40% (0.4) of original size.
+  const dynamicScale = Math.max(0.4, 1 - (totalIdeas * 0.015));
+  const scaleRef = useRef(dynamicScale);
+
+  // Update scale if totalIdeas changes
+  useEffect(() => {
+    scaleRef.current = dynamicScale;
+  }, [dynamicScale]);
 
   // Determine fish asset
   const fishIndex = idea.fishType !== undefined
