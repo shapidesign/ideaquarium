@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
-import { User, LogOut, RefreshCw, Heart } from "lucide-react";
+import { User, LogOut, RefreshCw, Heart, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   onAuthStateChanged,
   signOut as firebaseSignOut,
@@ -62,10 +64,10 @@ function App() {
   const [nextId, setNextId] = useState(1);
   const [editingIdea, setEditingIdea] = useState<Idea | null>(null);
 
-  // Auth & Sync State
   const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
 
   // Load ideas from localStorage on mount
   useEffect(() => {
@@ -130,6 +132,10 @@ function App() {
 
   const fetchServerIdeas = useCallback(async (silent = false, overrideToken?: string) => {
     if (!silent) setIsSyncing(true);
+    let toastId;
+    if (!silent && user) {
+      toastId = toast.loading("מעדכן רעיונות מהשרת...");
+    }
     try {
       let token = overrideToken ?? await getToken();
       if (!token) {
@@ -157,17 +163,9 @@ function App() {
         const data = await res.json();
         const serverIdeas: Idea[] = data.ideas || [];
 
-        setIdeas(currentIdeas => {
-          // If we are migrating anonymous ideas, merge them.
-          // Otherwise, the server is the source of truth for a logged-in user.
-          // IMPORTANT: We only want to auto-upload "missing" ideas if they weren't
-          // just fetched from another device.
-          
-          // Logic: If currentIdeas has things not on server, upload them.
-          // But we must be careful NOT to upload User A's ideas to User B's account.
-          // This is now handled by clearing state on logout and using unique keys.
+        setIdeas((currentIdeas: Idea[]) => {
           const missingOnServer = currentIdeas.filter(
-            local => !serverIdeas.some(s => s.id === local.id)
+            (local: Idea) => !serverIdeas.some((s: Idea) => s.id === local.id)
           );
 
           if (missingOnServer.length > 0) {
@@ -189,17 +187,19 @@ function App() {
           }
           return mergedIdeas;
         });
+        setLastSynced(new Date());
+        if (!silent && toastId) toast.success("הרעיונות סונכרנו בהצלחה", { id: toastId });
       } else {
         console.error("Server fetch failed:", res.status, res.statusText);
-        // If fetch fails, we should NOT clear the ideas state, 
-        // we keep what we have locally to prevent total data loss.
+        if (!silent && toastId) toast.error("שגיאה בסנכרון מהשרת", { id: toastId });
       }
     } catch (err) {
       console.error("Error fetching server ideas:", err);
+      if (!silent) toast.error("שגיאת תקשורת");
     } finally {
       if (!silent) setIsSyncing(false);
     }
-  }, []);
+  }, [user]);
 
   const handleManualSync = async () => {
     if (!user) return;
@@ -281,9 +281,10 @@ function App() {
     const newIdea: Idea = { id: newId, name, description, fishType: randomFishType, isDone };
     const updatedIdeas = [...ideas, newIdea];
     setIdeas(updatedIdeas);
-    setNextId(prev => prev + 1);
+    setNextId((prev: number) => prev + 1);
 
     if (user) {
+      const toastId = toast.loading("שומר רעיון בשרת...");
       try {
         const token = await getToken();
         if (token) {
@@ -292,10 +293,15 @@ function App() {
             headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
             body: JSON.stringify({ idea: newIdea }),
           });
+          toast.success("הרעיון נשמר!", { id: toastId });
+          setLastSynced(new Date());
         }
       } catch (err) {
         console.error("Failed to sync add to server", err);
+        toast.error("הרעיון יישמר מקומית ויסונכרן בהמשך", { id: toastId });
       }
+    } else {
+      toast.success("הרעיון נוסף!");
     }
   };
 
@@ -309,23 +315,29 @@ function App() {
   const handleUpdateIdea = async (name: string, description: string, isDone: boolean) => {
     if (!editingIdea) return;
     const updatedIdea: Idea = { ...editingIdea, name, description, isDone };
-    setIdeas(ideas.map(idea => idea.id === updatedIdea.id ? updatedIdea : idea));
+    setIdeas((prevIdeas: Idea[]) => prevIdeas.map(idea => idea.id === updatedIdea.id ? updatedIdea : idea));
     setEditingIdea(null);
 
     // Only sync to server if SERVER_URL is defined
-    if (user && SERVER_URL) {
+    if (user) {
+      const toastId = toast.loading("מעדכן רעיון בשרת...");
       try {
         const token = await getToken();
         if (token) {
-          await fetch(`${SERVER_URL}/ideas/${updatedIdea.id}`, {
+          await fetch(`${SERVER_URL}/api/ideas/${updatedIdea.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
             body: JSON.stringify({ idea: updatedIdea }),
           });
+          toast.success("הרעיון עודכן!", { id: toastId });
+          setLastSynced(new Date());
         }
       } catch (err) {
         console.error("Failed to sync update to server", err);
+        toast.error("העדכון יישמר מקומית ויסונכרן בהמשך", { id: toastId });
       }
+    } else {
+      toast.success("הרעיון עודכן!");
     }
   };
 
@@ -407,13 +419,34 @@ function App() {
         )}
       </div>
 
-      {/* Sync Indicator */}
-      {isSyncing && !user && (
-        <div className="absolute top-24 right-6 md:top-28 md:right-8 z-20 flex items-center gap-2 bg-white/80 px-3 py-1 rounded-full border-2 border-black">
-          <RefreshCw className="w-4 h-4 animate-spin text-[#332085]" />
-          <span className="text-xs font-hebrew">מסנכרן...</span>
+        {/* Status Indicators */}
+        <div className="flex flex-col items-end gap-1">
+          {/* Last Synced Text */}
+          {user && lastSynced && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white/90 backdrop-blur px-3 py-1.5 border-[2px] border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-sm flex items-center gap-2"
+            >
+              <CheckCircle2 className="w-4 h-4 text-green-600" />
+              <span className="text-[10px] md:text-xs font-hebrew font-bold">
+                סונכרן לאחרונה: {lastSynced.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </motion.div>
+          )}
+
+          {/* Syncing Indicator */}
+          {isSyncing && (
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="z-20 flex items-center gap-2 bg-[#5F7FFF] px-3 py-1.5 border-[2px] border-black shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] rounded-sm"
+            >
+              <RefreshCw className="w-4 h-4 animate-spin text-white" />
+              <span className="text-[10px] md:text-xs font-hebrew font-bold text-white">מסנכרן...</span>
+            </motion.div>
+          )}
         </div>
-      )}
 
       {/* Bottom Center: New Idea Button */}
       <div className="absolute bottom-20 left-1/2 -translate-x-1/2 md:bottom-8 z-30 pointer-events-auto">
@@ -445,14 +478,23 @@ function App() {
       )}
 
       {/* Swimming Fish */}
-      {ideas.map((idea) => (
-        <SwimmingFish
-          key={idea.id}
-          idea={idea}
-          totalIdeas={ideas.length}
-          onFishClick={handleFishClick}
-        />
-      ))}
+      <AnimatePresence>
+        {ideas.map((idea) => (
+          <motion.div
+            key={idea.id}
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            transition={{ type: "spring", stiffness: 260, damping: 20 }}
+          >
+            <SwimmingFish
+              idea={idea}
+              totalIdeas={ideas.length}
+              onFishClick={handleFishClick}
+            />
+          </motion.div>
+        ))}
+      </AnimatePresence>
 
       {/* Modals */}
       <IdeaModal
