@@ -3,20 +3,83 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
+import { getFirestore } from "firebase-admin/firestore";
 import { handle } from "hono/vercel";
-import * as kv from "./_kv_store";
-
-// Base path matched in vercel.json rewrite
-const app = new Hono();
 
 // ─── Firebase Admin Initialization ───────────────────────────────────────────
-function getAdminApp() {
+function getAdminAuthApp() {
   if (getApps().length === 0) {
     const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT ?? "{}");
     initializeApp({ credential: cert(serviceAccount) });
   }
   return getAdminAuth();
 }
+
+function getDb() {
+  if (getApps().length === 0) {
+    const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT ?? "{}");
+    initializeApp({ credential: cert(serviceAccount) });
+  }
+  return getFirestore();
+}
+
+// ─── KV Store Logic ──────────────────────────────────────────────────────────
+const COLLECTION = "kv_store";
+
+function encodeKey(key: string): string {
+  return Buffer.from(key).toString('base64').replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
+const kv = {
+  set: async (key: string, value: any): Promise<void> => {
+    const db = getDb();
+    await db.collection(COLLECTION).doc(encodeKey(key)).set({ key, value });
+  },
+  get: async (key: string): Promise<any> => {
+    const db = getDb();
+    const snap = await db.collection(COLLECTION).doc(encodeKey(key)).get();
+    return snap.exists ? snap.data()?.value : undefined;
+  },
+  del: async (key: string): Promise<void> => {
+    const db = getDb();
+    await db.collection(COLLECTION).doc(encodeKey(key)).delete();
+  },
+  mset: async (keys: string[], values: any[]): Promise<void> => {
+    const db = getDb();
+    const batch = db.batch();
+    keys.forEach((k, i) => {
+      const ref = db.collection(COLLECTION).doc(encodeKey(k));
+      batch.set(ref, { key: k, value: values[i] });
+    });
+    await batch.commit();
+  },
+  mget: async (keys: string[]): Promise<any[]> => {
+    const db = getDb();
+    const refs = keys.map(k => db.collection(COLLECTION).doc(encodeKey(k)));
+    const snaps = await db.getAll(...refs);
+    return snaps.map(snap => (snap.exists ? snap.data()?.value : undefined));
+  },
+  mdel: async (keys: string[]): Promise<void> => {
+    const db = getDb();
+    const batch = db.batch();
+    keys.forEach(k => {
+      batch.delete(db.collection(COLLECTION).doc(encodeKey(k)));
+    });
+    await batch.commit();
+  },
+  getByPrefix: async (prefix: string): Promise<any[]> => {
+    const db = getDb();
+    const snap = await db
+      .collection(COLLECTION)
+      .where("key", ">=", prefix)
+      .where("key", "<", prefix + "\uffff")
+      .get();
+    return snap.docs.map(doc => doc.data().value);
+  }
+};
+
+// ─── Hono App ────────────────────────────────────────────────────────────────
+const app = new Hono();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use('*', logger(console.log));
@@ -37,25 +100,6 @@ app.get("/api/health", (c) => {
   return c.json({ status: "ok" });
 });
 
-// ─── Sign up ──────────────────────────────────────────────────────────────────
-app.post("/api/signup", async (c) => {
-  try {
-    const { email, password, name } = await c.req.json();
-    const adminAuth = getAdminApp();
-
-    const userRecord = await adminAuth.createUser({
-      email,
-      password,
-      displayName: name,
-    });
-
-    return c.json({ user: { id: userRecord.uid, email: userRecord.email } });
-  } catch (error: any) {
-    console.log(`Sign up error: ${error.message}`);
-    return c.json({ error: error.message }, 400);
-  }
-});
-
 // ─── Auth helper ──────────────────────────────────────────────────────────────
 async function getAuthUser(c: any) {
   let idToken = c.req.header('X-User-Token');
@@ -70,7 +114,7 @@ async function getAuthUser(c: any) {
   if (!idToken) return { user: null, error: "Missing access token" };
 
   try {
-    const adminAuth = getAdminApp();
+    const adminAuth = getAuthUserApp();
     const decoded = await adminAuth.verifyIdToken(idToken);
     return { user: decoded, error: null };
   } catch (err: any) {
@@ -79,7 +123,30 @@ async function getAuthUser(c: any) {
   }
 }
 
-// ─── Get user's ideas ─────────────────────────────────────────────────────────
+// Fixed getAuthUser calling wrong function name
+function getAuthUserApp() {
+  return getAdminAuthApp();
+}
+
+// ─── Routes ──────────────────────────────────────────────────────────────────
+app.post("/api/signup", async (c) => {
+  try {
+    const { email, password, name } = await c.req.json();
+    const adminAuth = getAdminAuthApp();
+
+    const userRecord = await adminAuth.createUser({
+      email,
+      password,
+      displayName: name,
+    });
+
+    return c.json({ user: { id: userRecord.uid, email: userRecord.email } });
+  } catch (error: any) {
+    console.log(`Sign up error: ${error.message}`);
+    return c.json({ error: error.message }, 400);
+  }
+});
+
 app.get("/api/ideas", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
@@ -98,7 +165,6 @@ app.get("/api/ideas", async (c) => {
   }
 });
 
-// ─── Add new idea ─────────────────────────────────────────────────────────────
 app.post("/api/ideas", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
@@ -118,7 +184,6 @@ app.post("/api/ideas", async (c) => {
   }
 });
 
-// ─── Batch upload ideas ───────────────────────────────────────────────────────
 app.post("/api/ideas/batch", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
@@ -141,7 +206,6 @@ app.post("/api/ideas/batch", async (c) => {
   }
 });
 
-// ─── Update idea ──────────────────────────────────────────────────────────────
 app.put("/api/ideas/:id", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
@@ -159,7 +223,6 @@ app.put("/api/ideas/:id", async (c) => {
   }
 });
 
-// ─── Delete idea ──────────────────────────────────────────────────────────────
 app.delete("/api/ideas/:id", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
@@ -174,7 +237,6 @@ app.delete("/api/ideas/:id", async (c) => {
   }
 });
 
-// ─── Clear all ideas ──────────────────────────────────────────────────────────
 app.delete("/api/ideas", async (c) => {
   try {
     const { user, error } = await getAuthUser(c);
