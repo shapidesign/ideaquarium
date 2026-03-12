@@ -24,8 +24,7 @@ export interface Idea {
   isDone?: boolean; // Status: true if completed
 }
 
-const ANON_STORAGE_KEY = "aquarium-ideas-anon";
-const getStorageKey = (uid?: string) => uid ? `aquarium-ideas-${uid}` : ANON_STORAGE_KEY;
+const getStorageKey = (uid?: string) => uid ? `aquarium-ideas-${uid}` : null;
 
 // ─── Server URL ──────────────────────────────────────────────────────────────
 // Vercel Serverless Function endpoint (mapped via vercel.json)
@@ -69,20 +68,14 @@ function App() {
   // Load ideas from localStorage on mount
   useEffect(() => {
     try {
-      // Check for user-specific vs anon vs legacy
-      const userKey = getStorageKey(auth.currentUser?.uid);
-      let stored = localStorage.getItem(userKey);
-      
-      // Legacy fallback (convert "aquarium-ideas" to "aquarium-ideas-anon" if needed)
-      if (!stored && !auth.currentUser) {
-        const legacy = localStorage.getItem("aquarium-ideas");
-        if (legacy) {
-          stored = legacy;
-          localStorage.setItem(ANON_STORAGE_KEY, legacy);
-          localStorage.removeItem("aquarium-ideas");
-        }
-      }
+      // We only load if we know the user is already there (unlikely on mount, but possible)
+      const uid = auth.currentUser?.uid;
+      if (!uid) return;
 
+      const userKey = getStorageKey(uid);
+      if (!userKey) return;
+
+      const stored = localStorage.getItem(userKey);
       if (stored) {
         const parsedIdeas = JSON.parse(stored);
         setIdeas(prev => prev.length === 0 ? parsedIdeas : prev);
@@ -123,19 +116,6 @@ function App() {
 
     try {
       await firebaseSignOut(auth);
-      // After sign out, reload anonymous ideas
-      const stored = localStorage.getItem(ANON_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        setIdeas(parsed);
-        if (parsed.length > 0) {
-          const maxId = Math.max(...parsed.map((i: Idea) => {
-            const num = parseInt(i.id);
-            return isNaN(num) ? 0 : num;
-          }));
-          setNextId(maxId + 1);
-        }
-      }
     } catch (e) {
       console.warn("Sign out failed:", e);
     }
@@ -190,7 +170,10 @@ function App() {
           }
 
           const mergedIdeas = [...serverIdeas, ...missingOnServer];
-          localStorage.setItem(getStorageKey(auth.currentUser?.uid), JSON.stringify(mergedIdeas));
+          const storageKey = getStorageKey(auth.currentUser?.uid);
+          if (storageKey) {
+            localStorage.setItem(storageKey, JSON.stringify(mergedIdeas));
+          }
           
           if (mergedIdeas.length > 0) {
             const maxId = mergedIdeas.reduce((max: number, idea: Idea) => {
@@ -232,31 +215,16 @@ function App() {
         // User logged in
         setUser(firebaseUser);
         
-        // 1. Check for anonymous ideas to migrate
-        const anonData = localStorage.getItem(ANON_STORAGE_KEY);
-        if (anonData) {
-          try {
-            const anonIdeas = JSON.parse(anonData);
-            if (anonIdeas.length > 0) {
-              setIdeas(anonIdeas); // Temporarily show them while fetching/uploading
-              // Migration will happen inside fetchServerIdeas -> setIdeas callback
-            }
-          } catch (e) {
-            console.error("Anon migration parse error", e);
-          }
-          // Clear anon storage so we don't migrate again
-          localStorage.removeItem(ANON_STORAGE_KEY);
-        } else {
-          // If no anon data, clear state to prevent leakage from previous user
-          // (though handled by handlesignout too)
-          setIdeas([]);
-        }
-
+        // Clear state before loading fresh ideas for this user
+        setIdeas([]);
+        
         const token = await firebaseUser.getIdToken();
         fetchServerIdeas(false, token);
       } else {
-        // User logged out - handled by handleSignOut usually, but as fallback:
+        // User logged out
         setUser(null);
+        setIdeas([]);
+        setNextId(1);
       }
     });
     return () => unsubscribe();
@@ -273,7 +241,9 @@ function App() {
   useEffect(() => {
     try {
       const currentKey = getStorageKey(user?.uid);
-      localStorage.setItem(currentKey, JSON.stringify(ideas));
+      if (currentKey) {
+        localStorage.setItem(currentKey, JSON.stringify(ideas));
+      }
     } catch (error) {
       console.error("Error saving ideas to localStorage:", error);
     }
@@ -341,7 +311,8 @@ function App() {
     if (confirm("האם אתה בטוח שברצונך למחוק את כל הרעיונות?")) {
       setIdeas([]);
       setNextId(1);
-      localStorage.removeItem(getStorageKey(user?.uid));
+      const storageKey = getStorageKey(user?.uid);
+      if (storageKey) localStorage.removeItem(storageKey);
 
       if (user) {
         try {
