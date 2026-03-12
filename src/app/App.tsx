@@ -1,3 +1,4 @@
+// Triggering Vercel build to verify consolidated API fix
 import { useState, useEffect, useCallback } from "react";
 import { User, LogOut, RefreshCw, Heart, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
