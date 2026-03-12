@@ -24,11 +24,13 @@ export interface Idea {
   isDone?: boolean; // Status: true if completed
 }
 
-const getStorageKey = (uid?: string) => uid ? `aquarium-ideas-${uid}` : null;
+const LEGACY_STORAGE_KEY = "aquarium-ideas";
+const ANON_STORAGE_KEY = "aquarium-ideas-anon";
+const getStorageKey = (uid?: string) => uid ? `aquarium-ideas-${uid}` : ANON_STORAGE_KEY;
 
 // ─── Server URL ──────────────────────────────────────────────────────────────
 // Vercel Serverless Function endpoint (mapped via vercel.json)
-const SERVER_URL = "/api";
+const SERVER_URL = "";
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Get a fresh Firebase ID token for the current user, or null if not logged in. */
@@ -68,27 +70,32 @@ function App() {
   // Load ideas from localStorage on mount
   useEffect(() => {
     try {
-      // We only load if we know the user is already there (unlikely on mount, but possible)
+      // 1. Initial load for the probable current state
       const uid = auth.currentUser?.uid;
-      if (!uid) return;
+      const currentKey = getStorageKey(uid);
+      let stored = localStorage.getItem(currentKey);
 
-      const userKey = getStorageKey(uid);
-      if (!userKey) return;
+      // 2. Legacy Recovery: If no data in new keys, look in old key
+      if (!stored && !uid) {
+        const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+        if (legacy) {
+          console.log("Recovered legacy ideas");
+          stored = legacy;
+          // Keep it in anon key so it can be migrated on login
+          localStorage.setItem(ANON_STORAGE_KEY, legacy);
+        }
+      }
 
-      const stored = localStorage.getItem(userKey);
       if (stored) {
         const parsedIdeas = JSON.parse(stored);
-        setIdeas(prev => prev.length === 0 ? parsedIdeas : prev);
         if (parsedIdeas.length > 0) {
-          const maxId = Math.max(...parsedIdeas.map((idea: Idea) => {
-            const num = parseInt(idea.id);
-            return isNaN(num) ? 0 : num;
-          }));
+          setIdeas(parsedIdeas);
+          const maxId = Math.max(...parsedIdeas.map((i: Idea) => parseInt(i.id) || 0));
           setNextId(maxId + 1);
         }
       }
     } catch (error) {
-      console.error("Error loading ideas from localStorage:", error);
+      console.error("Error loading ideas:", error);
     }
   }, []);
 
@@ -130,7 +137,7 @@ function App() {
         return;
       }
 
-      const res = await fetch(`${SERVER_URL}/ideas?t=${Date.now()}`, {
+      const res = await fetch(`${SERVER_URL}/api/ideas?t=${Date.now()}`, {
         headers: { 'X-User-Token': token },
         cache: 'no-store',
       });
@@ -171,9 +178,7 @@ function App() {
 
           const mergedIdeas = [...serverIdeas, ...missingOnServer];
           const storageKey = getStorageKey(auth.currentUser?.uid);
-          if (storageKey) {
-            localStorage.setItem(storageKey, JSON.stringify(mergedIdeas));
-          }
+          localStorage.setItem(storageKey, JSON.stringify(mergedIdeas));
           
           if (mergedIdeas.length > 0) {
             const maxId = mergedIdeas.reduce((max: number, idea: Idea) => {
@@ -184,6 +189,10 @@ function App() {
           }
           return mergedIdeas;
         });
+      } else {
+        console.error("Server fetch failed:", res.status, res.statusText);
+        // If fetch fails, we should NOT clear the ideas state, 
+        // we keep what we have locally to prevent total data loss.
       }
     } catch (err) {
       console.error("Error fetching server ideas:", err);
@@ -212,16 +221,29 @@ function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // User logged in
         setUser(firebaseUser);
         
-        // Clear state before loading fresh ideas for this user
-        setIdeas([]);
-        
+        // 1. Check for anonymous/legacy ideas to migrate
+        const anonData = localStorage.getItem(ANON_STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
+        if (anonData) {
+          try {
+            const anonIdeas = JSON.parse(anonData);
+            if (anonIdeas.length > 0) {
+              setIdeas(anonIdeas);
+            }
+          } catch (e) {
+            console.error("Migration error", e);
+          }
+          // Don't clear yet, we clear in fetchServerIdeas after combined with server
+        }
+
         const token = await firebaseUser.getIdToken();
-        fetchServerIdeas(false, token);
+        fetchServerIdeas(false, token).then(() => {
+          // Clear anon storage ONLY after a successful sync
+          localStorage.removeItem(ANON_STORAGE_KEY);
+          localStorage.removeItem(LEGACY_STORAGE_KEY);
+        });
       } else {
-        // User logged out
         setUser(null);
         setIdeas([]);
         setNextId(1);
@@ -239,13 +261,12 @@ function App() {
 
   // Persist ideas to localStorage on every change
   useEffect(() => {
+    if (ideas.length === 0 && !user) return; // Don't wipe storage if logged out and empty
     try {
       const currentKey = getStorageKey(user?.uid);
-      if (currentKey) {
-        localStorage.setItem(currentKey, JSON.stringify(ideas));
-      }
+      localStorage.setItem(currentKey, JSON.stringify(ideas));
     } catch (error) {
-      console.error("Error saving ideas to localStorage:", error);
+      console.error("Error saving ideas:", error);
     }
   }, [ideas, user]);
 
@@ -266,7 +287,7 @@ function App() {
       try {
         const token = await getToken();
         if (token) {
-          await fetch(`${SERVER_URL}/ideas`, {
+          await fetch(`${SERVER_URL}/api/ideas`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
             body: JSON.stringify({ idea: newIdea }),
@@ -291,7 +312,8 @@ function App() {
     setIdeas(ideas.map(idea => idea.id === updatedIdea.id ? updatedIdea : idea));
     setEditingIdea(null);
 
-    if (user) {
+    // Only sync to server if SERVER_URL is defined
+    if (user && SERVER_URL) {
       try {
         const token = await getToken();
         if (token) {
@@ -318,7 +340,7 @@ function App() {
         try {
           const token = await getToken();
           if (token) {
-            await fetch(`${SERVER_URL}/ideas`, {
+            await fetch(`${SERVER_URL}/api/ideas`, {
               method: 'DELETE',
               headers: { 'X-User-Token': token },
             });
