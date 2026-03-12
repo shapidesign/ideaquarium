@@ -1,6 +1,10 @@
 import { useState } from "react";
-import { getSupabaseClient } from "@/utils/supabase/client";
-import { projectId, publicAnonKey } from "@/utils/supabase/info";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  updateProfile,
+} from "firebase/auth";
+import { auth } from "@/utils/firebase/client";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -25,60 +29,28 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
     setLoading(true);
 
     try {
-      const supabase = getSupabaseClient();
-
       if (isSignUp) {
-        // Sign up via server
-        const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-e6b3371a/signup`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${publicAnonKey}`,
-            },
-            body: JSON.stringify({ email, password, name }),
-          }
-        );
+        // Create new account with Firebase Auth
+        const { user } = await createUserWithEmailAndPassword(auth, email, password);
 
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.error || "Sign up failed");
+        // Optionally set the display name
+        if (name) {
+          await updateProfile(user, { displayName: name });
         }
 
-        // Now sign in
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-        if (signInError) throw signInError;
-
-        if (!signInData?.session?.access_token) {
-          throw new Error("No access token received");
-        }
-
-        onAuthSuccess(signInData.session.access_token);
+        const token = await user.getIdToken();
+        onAuthSuccess(token);
 
         // Clear form
         setEmail("");
         setPassword("");
         setName("");
       } else {
-        // Sign in
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
+        // Sign in with Firebase Auth
+        const { user } = await signInWithEmailAndPassword(auth, email, password);
 
-        if (signInError) throw signInError;
-
-        if (!signInData?.session?.access_token) {
-          throw new Error("No access token received");
-        }
-
-        onAuthSuccess(signInData.session.access_token);
+        const token = await user.getIdToken();
+        onAuthSuccess(token);
 
         // Clear form
         setEmail("");
@@ -90,12 +62,15 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
       // User-friendly error messages in Hebrew
       let errorMessage = "שגיאה בהתחברות";
 
-      if (err.message?.includes("Invalid login credentials")) {
+      const code = err.code || "";
+      if (code === "auth/user-not-found" || code === "auth/wrong-password" || code === "auth/invalid-credential") {
         errorMessage = "אימייל או סיסמה שגויים";
-      } else if (err.message?.includes("Email not confirmed")) {
-        errorMessage = "יש לאשר את כתובת האימייל";
-      } else if (err.message?.includes("User already registered")) {
+      } else if (code === "auth/email-already-in-use") {
         errorMessage = "משתמש כבר קיים במערכת";
+      } else if (code === "auth/weak-password") {
+        errorMessage = "הסיסמה חלשה מדי (לפחות 6 תווים)";
+      } else if (code === "auth/invalid-email") {
+        errorMessage = "כתובת אימייל לא תקינה";
       } else if (err.message) {
         errorMessage = err.message;
       }
@@ -154,7 +129,7 @@ export function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalProps) {
         <Button
           type="submit"
           disabled={loading}
-          variant="secondary" // Orange as per Figma for auth
+          variant="secondary"
           className="w-full text-lg mt-2"
         >
           {loading ? "טוען..." : isSignUp ? "הרשמה" : "כניסה"}

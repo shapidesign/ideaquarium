@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
 import { User, LogOut, RefreshCw, Heart } from "lucide-react";
-import { getSupabaseClient } from "@/utils/supabase/client";
-import { projectId, publicAnonKey } from "@/utils/supabase/info";
+import {
+  onAuthStateChanged,
+  signOut as firebaseSignOut,
+  User as FirebaseUser,
+} from "firebase/auth";
+import { auth } from "@/utils/firebase/client";
 
 import { SwimmingFish } from "@/app/components/SwimmingFish";
 import { IdeaModal } from "@/app/components/IdeaModal";
@@ -21,23 +25,31 @@ export interface Idea {
 }
 
 const STORAGE_KEY = "aquarium-ideas";
-const SUPABASE_URL = `https://${projectId}.supabase.co`;
-const SERVER_URL = `${SUPABASE_URL}/functions/v1/make-server-e6b3371a`;
 
-// Initialize Supabase client
-const supabase = getSupabaseClient();
+// ─── Server URL ──────────────────────────────────────────────────────────────
+// Vercel Serverless Function endpoint (mapped via vercel.json)
+const SERVER_URL = "/api";
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Get a fresh Firebase ID token for the current user, or null if not logged in. */
+async function getToken(forceRefresh = false): Promise<string | null> {
+  const currentUser = auth.currentUser;
+  if (!currentUser) return null;
+  try {
+    return await currentUser.getIdToken(forceRefresh);
+  } catch {
+    return null;
+  }
+}
 
 function App() {
   // Set favicon on mount
   useEffect(() => {
-    // Basic favicon setup
     const link = document.querySelector("link[rel*='icon']") as HTMLLinkElement || document.createElement('link');
     link.type = 'image/x-icon';
     link.rel = 'icon';
     link.href = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='16'>🐠</text></svg>";
     document.getElementsByTagName('head')[0].appendChild(link);
-
-    // Set page title
     document.title = '🐠 אקווריום רעיונות';
   }, []);
 
@@ -49,18 +61,17 @@ function App() {
   const [editingIdea, setEditingIdea] = useState<Idea | null>(null);
 
   // Auth & Sync State
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Load ideas from localStorage on mount (initial load)
+  // Load ideas from localStorage on mount
   useEffect(() => {
     try {
       const storedIdeas = localStorage.getItem(STORAGE_KEY);
       if (storedIdeas) {
         const parsedIdeas = JSON.parse(storedIdeas);
         setIdeas(prev => prev.length === 0 ? parsedIdeas : prev);
-
         if (parsedIdeas.length > 0) {
           const maxId = Math.max(...parsedIdeas.map((idea: Idea) => {
             const num = parseInt(idea.id);
@@ -75,105 +86,72 @@ function App() {
   }, []);
 
   const batchUploadIdeas = async (ideasToUpload: Idea[], token: string) => {
-    try {
-      const res = await fetch(`${SERVER_URL}/ideas/batch`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'X-User-Token': token
-        },
-        body: JSON.stringify({ ideas: ideasToUpload })
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Upload failed");
-      }
-    } catch (err) {
-      console.error("Error batch uploading:", err);
-      throw err;
+    const res = await fetch(`${SERVER_URL}/ideas/batch`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-Token': token,
+      },
+      body: JSON.stringify({ ideas: ideasToUpload }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || "Upload failed");
     }
   };
 
   const handleSignOut = async () => {
     setUser(null);
     setIsSyncing(false);
-
     const storedIdeas = localStorage.getItem(STORAGE_KEY);
-    if (storedIdeas) {
-      setIdeas(JSON.parse(storedIdeas));
-    }
-
+    if (storedIdeas) setIdeas(JSON.parse(storedIdeas));
     try {
-      await supabase.auth.signOut();
-      Object.keys(localStorage).forEach(key => {
-        if (key.startsWith(`sb-${projectId}`)) {
-          localStorage.removeItem(key);
-        }
-      });
+      await firebaseSignOut(auth);
     } catch (e) {
-      console.warn("Sign out cleanup failed (ignorable):", e);
+      console.warn("Sign out failed (ignorable):", e);
     }
   };
 
-  // Sync with server
-  const fetchServerIdeas = useCallback(async (silent = false, isRetry = false, overrideToken?: string) => {
+  const fetchServerIdeas = useCallback(async (silent = false, overrideToken?: string) => {
     if (!silent) setIsSyncing(true);
     try {
-      let token = overrideToken;
-
+      let token = overrideToken ?? await getToken();
       if (!token) {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.access_token) {
-          if (!silent) setIsSyncing(false);
-          return;
-        }
-        token = session.access_token;
+        if (!silent) setIsSyncing(false);
+        return;
       }
 
-      if (!token) return;
-
       const res = await fetch(`${SERVER_URL}/ideas?t=${Date.now()}`, {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'X-User-Token': token
-        },
-        cache: 'no-store'
+        headers: { 'X-User-Token': token },
+        cache: 'no-store',
       });
 
       if (res.status === 401) {
-        if (!isRetry) {
-          const { data, error } = await supabase.auth.refreshSession();
-          if (!error && data.session) {
-            await fetchServerIdeas(silent, true, data.session.access_token);
-            return;
-          } else {
-            await handleSignOut();
-            return;
-          }
+        // Try refreshing the token once
+        const freshToken = await getToken(true);
+        if (freshToken) {
+          await fetchServerIdeas(silent, freshToken);
         } else {
           await handleSignOut();
-          return;
         }
+        return;
       }
 
       if (res.ok) {
         const data = await res.json();
-        const serverIdeas = data.ideas || [];
+        const serverIdeas: Idea[] = data.ideas || [];
 
         setIdeas(currentLocalIdeas => {
           const missingOnServer = currentLocalIdeas.filter(
-            localIdea => !serverIdeas.some((serverIdea: Idea) => serverIdea.id === localIdea.id)
+            local => !serverIdeas.some(s => s.id === local.id)
           );
-
           if (missingOnServer.length > 0) {
-            batchUploadIdeas(missingOnServer, token!).catch(e => console.error("Auto-upload failed:", e));
+            batchUploadIdeas(missingOnServer, token!).catch(e =>
+              console.error("Auto-upload failed:", e)
+            );
           }
-
           const mergedIdeas = [...serverIdeas, ...missingOnServer];
           localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedIdeas));
-
           if (mergedIdeas.length > 0) {
             const maxId = mergedIdeas.reduce((max: number, idea: Idea) => {
               const numId = parseInt(idea.id);
@@ -181,7 +159,6 @@ function App() {
             }, 0);
             setNextId(maxId + 1);
           }
-
           return mergedIdeas;
         });
       }
@@ -194,17 +171,11 @@ function App() {
 
   const handleManualSync = async () => {
     if (!user) return;
-
     setIsSyncing(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("No active session");
-      const token = session.access_token;
-
-      if (ideas.length > 0) {
-        await batchUploadIdeas(ideas, token);
-      }
-
+      const token = await getToken();
+      if (!token) throw new Error("No active session");
+      if (ideas.length > 0) await batchUploadIdeas(ideas, token);
       await fetchServerIdeas(true);
     } catch (err) {
       console.error("Manual sync failed:", err);
@@ -214,44 +185,30 @@ function App() {
     }
   };
 
+  // Listen to Firebase auth state changes
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
-        setUser(session.user);
-        fetchServerIdeas(false, false, session.access_token);
-      }
-    });
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        setUser(session.user);
-        if (_event === 'SIGNED_IN' || _event === 'TOKEN_REFRESHED') {
-          fetchServerIdeas(false, false, session.access_token);
-        }
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        setUser(firebaseUser);
+        const token = await firebaseUser.getIdToken();
+        fetchServerIdeas(false, token);
       } else {
         setUser(null);
         const storedIdeas = localStorage.getItem(STORAGE_KEY);
-        if (storedIdeas) {
-          setIdeas(JSON.parse(storedIdeas));
-        }
+        if (storedIdeas) setIdeas(JSON.parse(storedIdeas));
       }
     });
-
-    return () => subscription.unsubscribe();
+    return () => unsubscribe();
   }, [fetchServerIdeas]);
 
+  // Poll silently every 10 seconds when logged in
   useEffect(() => {
-    if (!user) return; // Poll only if logged in
-
-    const intervalId = setInterval(() => {
-      fetchServerIdeas(true); // true = silent (no spinner)
-    }, 10000);
-
+    if (!user) return;
+    const intervalId = setInterval(() => fetchServerIdeas(true), 10000);
     return () => clearInterval(intervalId);
   }, [user, fetchServerIdeas]);
 
+  // Persist ideas to localStorage on every change
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
@@ -268,30 +225,19 @@ function App() {
     const randomFishType = Math.floor(Math.random() * FISH_ASSETS.length);
     const newId = user ? `${Date.now()}` : nextId.toString();
 
-    const newIdea: Idea = {
-      id: newId,
-      name,
-      description,
-      fishType: randomFishType,
-      isDone,
-    };
-
+    const newIdea: Idea = { id: newId, name, description, fishType: randomFishType, isDone };
     const updatedIdeas = [...ideas, newIdea];
     setIdeas(updatedIdeas);
     setNextId(prev => prev + 1);
 
     if (user) {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.access_token) {
+        const token = await getToken();
+        if (token) {
           await fetch(`${SERVER_URL}/ideas`, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-User-Token': session.access_token
-            },
-            body: JSON.stringify({ idea: newIdea })
+            headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
+            body: JSON.stringify({ idea: newIdea }),
           });
         }
       } catch (err) {
@@ -300,9 +246,7 @@ function App() {
     }
   };
 
-  const handleFishClick = (idea: Idea) => {
-    setSelectedIdea(idea);
-  };
+  const handleFishClick = (idea: Idea) => setSelectedIdea(idea);
 
   const handleEditIdea = (idea: Idea) => {
     setEditingIdea(idea);
@@ -311,29 +255,18 @@ function App() {
 
   const handleUpdateIdea = async (name: string, description: string, isDone: boolean) => {
     if (!editingIdea) return;
-
-    const updatedIdea: Idea = {
-      ...editingIdea,
-      name,
-      description,
-      isDone,
-    };
-
+    const updatedIdea: Idea = { ...editingIdea, name, description, isDone };
     setIdeas(ideas.map(idea => idea.id === updatedIdea.id ? updatedIdea : idea));
     setEditingIdea(null);
 
     if (user) {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.access_token) {
+        const token = await getToken();
+        if (token) {
           await fetch(`${SERVER_URL}/ideas/${updatedIdea.id}`, {
             method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-User-Token': session.access_token
-            },
-            body: JSON.stringify({ idea: updatedIdea })
+            headers: { 'Content-Type': 'application/json', 'X-User-Token': token },
+            body: JSON.stringify({ idea: updatedIdea }),
           });
         }
       } catch (err) {
@@ -350,14 +283,11 @@ function App() {
 
       if (user) {
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session?.access_token) {
+          const token = await getToken();
+          if (token) {
             await fetch(`${SERVER_URL}/ideas`, {
               method: 'DELETE',
-              headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
-                'X-User-Token': session.access_token
-              }
+              headers: { 'X-User-Token': token },
             });
           }
         } catch (err) {
@@ -459,7 +389,7 @@ function App() {
         </div>
       )}
 
-      {/* Swimming Fish - Keeping Legacy Component for now, assuming it handles rendering fine */}
+      {/* Swimming Fish */}
       {ideas.map((idea) => (
         <SwimmingFish
           key={idea.id}
