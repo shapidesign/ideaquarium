@@ -24,7 +24,8 @@ export interface Idea {
   isDone?: boolean; // Status: true if completed
 }
 
-const STORAGE_KEY = "aquarium-ideas";
+const ANON_STORAGE_KEY = "aquarium-ideas-anon";
+const getStorageKey = (uid?: string) => uid ? `aquarium-ideas-${uid}` : ANON_STORAGE_KEY;
 
 // ─── Server URL ──────────────────────────────────────────────────────────────
 // Vercel Serverless Function endpoint (mapped via vercel.json)
@@ -68,9 +69,22 @@ function App() {
   // Load ideas from localStorage on mount
   useEffect(() => {
     try {
-      const storedIdeas = localStorage.getItem(STORAGE_KEY);
-      if (storedIdeas) {
-        const parsedIdeas = JSON.parse(storedIdeas);
+      // Check for user-specific vs anon vs legacy
+      const userKey = getStorageKey(auth.currentUser?.uid);
+      let stored = localStorage.getItem(userKey);
+      
+      // Legacy fallback (convert "aquarium-ideas" to "aquarium-ideas-anon" if needed)
+      if (!stored && !auth.currentUser) {
+        const legacy = localStorage.getItem("aquarium-ideas");
+        if (legacy) {
+          stored = legacy;
+          localStorage.setItem(ANON_STORAGE_KEY, legacy);
+          localStorage.removeItem("aquarium-ideas");
+        }
+      }
+
+      if (stored) {
+        const parsedIdeas = JSON.parse(stored);
         setIdeas(prev => prev.length === 0 ? parsedIdeas : prev);
         if (parsedIdeas.length > 0) {
           const maxId = Math.max(...parsedIdeas.map((idea: Idea) => {
@@ -101,14 +115,29 @@ function App() {
   };
 
   const handleSignOut = async () => {
+    // Clear state immediately
     setUser(null);
+    setIdeas([]);
+    setNextId(1);
     setIsSyncing(false);
-    const storedIdeas = localStorage.getItem(STORAGE_KEY);
-    if (storedIdeas) setIdeas(JSON.parse(storedIdeas));
+
     try {
       await firebaseSignOut(auth);
+      // After sign out, reload anonymous ideas
+      const stored = localStorage.getItem(ANON_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setIdeas(parsed);
+        if (parsed.length > 0) {
+          const maxId = Math.max(...parsed.map((i: Idea) => {
+            const num = parseInt(i.id);
+            return isNaN(num) ? 0 : num;
+          }));
+          setNextId(maxId + 1);
+        }
+      }
     } catch (e) {
-      console.warn("Sign out failed (ignorable):", e);
+      console.warn("Sign out failed:", e);
     }
   };
 
@@ -141,17 +170,28 @@ function App() {
         const data = await res.json();
         const serverIdeas: Idea[] = data.ideas || [];
 
-        setIdeas(currentLocalIdeas => {
-          const missingOnServer = currentLocalIdeas.filter(
+        setIdeas(currentIdeas => {
+          // If we are migrating anonymous ideas, merge them.
+          // Otherwise, the server is the source of truth for a logged-in user.
+          // IMPORTANT: We only want to auto-upload "missing" ideas if they weren't
+          // just fetched from another device.
+          
+          // Logic: If currentIdeas has things not on server, upload them.
+          // But we must be careful NOT to upload User A's ideas to User B's account.
+          // This is now handled by clearing state on logout and using unique keys.
+          const missingOnServer = currentIdeas.filter(
             local => !serverIdeas.some(s => s.id === local.id)
           );
+
           if (missingOnServer.length > 0) {
             batchUploadIdeas(missingOnServer, token!).catch(e =>
               console.error("Auto-upload failed:", e)
             );
           }
+
           const mergedIdeas = [...serverIdeas, ...missingOnServer];
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(mergedIdeas));
+          localStorage.setItem(getStorageKey(auth.currentUser?.uid), JSON.stringify(mergedIdeas));
+          
           if (mergedIdeas.length > 0) {
             const maxId = mergedIdeas.reduce((max: number, idea: Idea) => {
               const numId = parseInt(idea.id);
@@ -189,13 +229,34 @@ function App() {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        // User logged in
         setUser(firebaseUser);
+        
+        // 1. Check for anonymous ideas to migrate
+        const anonData = localStorage.getItem(ANON_STORAGE_KEY);
+        if (anonData) {
+          try {
+            const anonIdeas = JSON.parse(anonData);
+            if (anonIdeas.length > 0) {
+              setIdeas(anonIdeas); // Temporarily show them while fetching/uploading
+              // Migration will happen inside fetchServerIdeas -> setIdeas callback
+            }
+          } catch (e) {
+            console.error("Anon migration parse error", e);
+          }
+          // Clear anon storage so we don't migrate again
+          localStorage.removeItem(ANON_STORAGE_KEY);
+        } else {
+          // If no anon data, clear state to prevent leakage from previous user
+          // (though handled by handlesignout too)
+          setIdeas([]);
+        }
+
         const token = await firebaseUser.getIdToken();
         fetchServerIdeas(false, token);
       } else {
+        // User logged out - handled by handleSignOut usually, but as fallback:
         setUser(null);
-        const storedIdeas = localStorage.getItem(STORAGE_KEY);
-        if (storedIdeas) setIdeas(JSON.parse(storedIdeas));
       }
     });
     return () => unsubscribe();
@@ -211,11 +272,12 @@ function App() {
   // Persist ideas to localStorage on every change
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(ideas));
+      const currentKey = getStorageKey(user?.uid);
+      localStorage.setItem(currentKey, JSON.stringify(ideas));
     } catch (error) {
       console.error("Error saving ideas to localStorage:", error);
     }
-  }, [ideas]);
+  }, [ideas, user]);
 
   const handleAuthSuccess = (_token: string) => {
     setIsAuthModalOpen(false);
@@ -279,7 +341,7 @@ function App() {
     if (confirm("האם אתה בטוח שברצונך למחוק את כל הרעיונות?")) {
       setIdeas([]);
       setNextId(1);
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(getStorageKey(user?.uid));
 
       if (user) {
         try {
