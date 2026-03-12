@@ -10,10 +10,11 @@ interface IdeaModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAddIdea: (name: string, description: string, isDone: boolean) => void;
+  onDeleteIdea?: () => void;
   editIdea?: Idea | null;
 }
 
-export function IdeaModal({ isOpen, onClose, onAddIdea, editIdea }: IdeaModalProps) {
+export function IdeaModal({ isOpen, onClose, onAddIdea, onDeleteIdea, editIdea }: IdeaModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [isDone, setIsDone] = useState(false);

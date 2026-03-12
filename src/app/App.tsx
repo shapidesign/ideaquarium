@@ -81,7 +81,6 @@ function App() {
       if (!stored && !uid) {
         const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
         if (legacy) {
-          console.log("Recovered legacy ideas");
           stored = legacy;
           // Keep it in anon key so it can be migrated on login
           localStorage.setItem(ANON_STORAGE_KEY, legacy);
@@ -341,6 +340,34 @@ function App() {
     }
   };
 
+  const handleDeleteIdea = async (id: string) => {
+    if (!confirm("האם אתה בטוח שברצונך למחוק רעיון זה?")) return;
+    
+    setIdeas((prev: Idea[]) => prev.filter(idea => idea.id !== id));
+    setEditingIdea(null);
+    setIsModalOpen(false);
+
+    if (user) {
+      const toastId = toast.loading("מוחק רעיון מהשרת...");
+      try {
+        const token = await getToken();
+        if (token) {
+          await fetch(`${SERVER_URL}/api/ideas/${id}`, {
+            method: 'DELETE',
+            headers: { 'X-User-Token': token },
+          });
+          toast.success("הרעיון נמחק!", { id: toastId });
+          setLastSynced(new Date());
+        }
+      } catch (err) {
+        console.error("Failed to sync delete to server", err);
+        toast.error("הרעיון יימחק מקומית ויסונכרן בהמשך", { id: toastId });
+      }
+    } else {
+      toast.success("הרעיון נמחק!");
+    }
+  };
+
   const handleClearAll = async () => {
     if (confirm("האם אתה בטוח שברצונך למחוק את כל הרעיונות?")) {
       setIdeas([]);
@@ -420,7 +447,7 @@ function App() {
       </div>
 
         {/* Status Indicators */}
-        <div className="flex flex-col items-end gap-1">
+        <div className="absolute top-20 right-6 md:top-24 md:right-8 z-30 flex flex-col items-end gap-1 pointer-events-none">
           {/* Last Synced Text */}
           {user && lastSynced && (
             <motion.div 
@@ -504,6 +531,7 @@ function App() {
           setEditingIdea(null);
         }}
         onAddIdea={editingIdea ? handleUpdateIdea : handleAddIdea}
+        onDeleteIdea={editingIdea ? () => handleDeleteIdea(editingIdea.id) : undefined}
         editIdea={editingIdea}
       />
 
@@ -511,6 +539,7 @@ function App() {
         idea={selectedIdea}
         onClose={() => setSelectedIdea(null)}
         onEditIdea={handleEditIdea}
+        onDeleteIdea={handleDeleteIdea}
       />
 
       <IdeasListModal

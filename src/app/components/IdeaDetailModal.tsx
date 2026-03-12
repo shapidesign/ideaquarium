@@ -6,9 +6,10 @@ interface IdeaDetailModalProps {
   idea: Idea | null;
   onClose: () => void;
   onEditIdea: (idea: Idea) => void;
+  onDeleteIdea: (id: string) => void;
 }
 
-export function IdeaDetailModal({ idea, onClose, onEditIdea }: IdeaDetailModalProps) {
+export function IdeaDetailModal({ idea, onClose, onEditIdea, onDeleteIdea }: IdeaDetailModalProps) {
   if (!idea) return null;
 
   // Determine fish asset
@@ -70,16 +71,31 @@ export function IdeaDetailModal({ idea, onClose, onEditIdea }: IdeaDetailModalPr
               </div>
             )}
 
-            {/* Edit Button */}
-            <button
-              onClick={() => onEditIdea(idea)}
-              className="bg-[#2196F3] border-[3px] md:border-[4px] border-black hover:bg-[#1976D2] active:bg-[#0D47A1] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[4px] active:translate-y-[4px] px-6 py-3 md:px-8 md:py-4 transition-all"
-              style={{ imageRendering: 'pixelated' }}
-            >
-              <span className="font-['Shimshon','Miriam_Libre',sans-serif] text-lg md:text-xl text-white leading-none whitespace-nowrap">
-                עריכה
-              </span>
-            </button>
+            {/* Actions */}
+            <div className="flex gap-3 md:gap-4 justify-center">
+              <button
+                onClick={() => onEditIdea(idea)}
+                className="bg-[#2196F3] border-[3px] md:border-[4px] border-black hover:bg-[#1976D2] active:bg-[#0D47A1] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[4px] active:translate-y-[4px] px-6 py-3 md:px-8 md:py-4 transition-all"
+                style={{ imageRendering: 'pixelated' }}
+              >
+                <span className="font-['Shimshon','Miriam_Libre',sans-serif] text-lg md:text-xl text-white leading-none whitespace-nowrap">
+                  עריכה
+                </span>
+              </button>
+
+              <button
+                onClick={() => {
+                  onDeleteIdea(idea.id);
+                  onClose();
+                }}
+                className="bg-[#F44336] border-[3px] md:border-[4px] border-black hover:bg-[#D32F2F] active:bg-[#B71C1C] shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none active:translate-x-[4px] active:translate-y-[4px] px-6 py-3 md:px-8 md:py-4 transition-all"
+                style={{ imageRendering: 'pixelated' }}
+              >
+                <span className="font-['Shimshon','Miriam_Libre',sans-serif] text-lg md:text-xl text-white leading-none whitespace-nowrap">
+                  מחיקה
+                </span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
