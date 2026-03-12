@@ -82,18 +82,7 @@ const kv = {
 const app = new Hono();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
-app.use('*', logger(console.log));
-
-app.use(
-  "/*",
-  cors({
-    origin: "*",
-    allowHeaders: ["Content-Type", "Authorization", "X-User-Token"],
-    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    exposeHeaders: ["Content-Length"],
-    maxAge: 600,
-  }),
-);
+// (Temporarily removed to debug TypeError: this.raw.headers.get is not a function)
 
 // ─── Health check ─────────────────────────────────────────────────────────────
 app.get("/api/health", (c) => {
