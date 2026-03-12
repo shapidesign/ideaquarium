@@ -102,7 +102,7 @@ function App() {
   }, []);
 
   const batchUploadIdeas = async (ideasToUpload: Idea[], token: string) => {
-    const res = await fetch(`${SERVER_URL}/ideas/batch`, {
+    const res = await fetch(`${SERVER_URL}/api/ideas/batch`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
