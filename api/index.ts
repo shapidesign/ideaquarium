@@ -4,7 +4,7 @@ import { logger } from "hono/logger";
 import { initializeApp, getApps, cert } from "firebase-admin/app";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { handle } from "hono/vercel";
-import * as kv from "../api_lib/kv_store";
+import * as kv from "./_kv_store";
 
 // Base path matched in vercel.json rewrite
 const app = new Hono();
